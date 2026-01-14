@@ -423,20 +423,23 @@ function parseQuestions(text, type) {
     return questions;
 }
 
-// サーバー起動
-app.listen(PORT, () => {
-    console.log(`
+// ルートパスでindex.htmlを返す
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Vercel用エクスポート
+module.exports = app;
+
+// ローカル開発用
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`
 ╔═══════════════════════════════════════════════════╗
 ║           MedShare Server Started!                ║
 ╠═══════════════════════════════════════════════════╣
 ║  URL: http://localhost:${PORT}                       ║
-║                                                   ║
-║  Gmail設定:                                       ║
-║  1. .env に GMAIL_USER を設定                     ║
-║  2. .env に GMAIL_APP_PASSWORD を設定             ║
-║                                                   ║
-║  アプリパスワードの取得方法:                      ║
-║  https://myaccount.google.com/apppasswords        ║
 ╚═══════════════════════════════════════════════════╝
-    `);
-});
+        `);
+    });
+}

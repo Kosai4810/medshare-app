@@ -79,7 +79,22 @@ function getStorageKey(university, year) {
     return `medshare_${university}_${year}`;
 }
 
-function getPosts(university, year) {
+// API経由で投稿を取得
+async function getPosts(university, year) {
+    try {
+        const response = await fetch(`/api/posts/${university}/${year}`);
+        const data = await response.json();
+        if (data.success) {
+            return data.posts;
+        }
+    } catch (error) {
+        console.error('投稿取得エラー:', error);
+    }
+    return [];
+}
+
+// ローカルキャッシュ用（後方互換性）
+function getPostsLocal(university, year) {
     const key = getStorageKey(university, year);
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : [];
@@ -173,34 +188,31 @@ function updateAvatarDisplay() {
     }
 }
 
-// ランキング機能
-function getAllUsersWithPoints() {
-    const users = getUsers();
-    const pointsData = localStorage.getItem('medshare_points');
-    const points = pointsData ? JSON.parse(pointsData) : {};
-
-    return users.map(user => ({
-        id: user.id,
-        nickname: user.nickname,
-        universityId: user.universityId,
-        points: points[user.id] || 0,
-        avatar: getUserAvatar(user.id)
-    })).sort((a, b) => b.points - a.points);
-}
-
-function getRankings(scope) {
-    const allUsers = getAllUsersWithPoints();
-
-    if (scope === 'national') {
-        return allUsers;
-    } else if (scope === 'university' && currentUser) {
-        return allUsers.filter(u => u.universityId === currentUser.universityId);
+// ランキング機能（API経由）
+async function getRankings(scope) {
+    try {
+        const url = scope === 'university' && currentUser
+            ? `/api/rankings/${scope}?universityId=${currentUser.universityId}`
+            : `/api/rankings/${scope}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.success) {
+            return data.rankings.map(user => ({
+                id: user.id,
+                nickname: user.nickname,
+                universityId: user.university_id,
+                points: user.points || 0,
+                avatar: user.avatar
+            }));
+        }
+    } catch (error) {
+        console.error('ランキング取得エラー:', error);
     }
-    return allUsers;
+    return [];
 }
 
-function renderRankings(scope) {
-    const rankings = getRankings(scope);
+async function renderRankings(scope) {
+    const rankings = await getRankings(scope);
     const container = document.getElementById('ranking-list');
 
     if (rankings.length === 0) {

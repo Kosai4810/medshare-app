@@ -3,7 +3,14 @@ const nodemailer = require('nodemailer');
 const cors = require('cors');
 const path = require('path');
 const OpenAI = require('openai');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
+
+// Supabase初期化
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+);
 
 // OpenAI初期化
 const openai = new OpenAI({
@@ -27,10 +34,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname)));
-
-// 仮登録ユーザーの保存（本番ではDBを使用）
-const pendingUsers = new Map();
-const verifiedUsers = new Map();
 
 // 大学データ
 const universities = {
@@ -86,7 +89,7 @@ function generateToken() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2) + Math.random().toString(36).substr(2);
 }
 
-// 簡易ハッシュ（本番ではbcryptを使用）
+// 簡易ハッシュ
 function hashPassword(password) {
     let hash = 0;
     for (let i = 0; i < password.length; i++) {
@@ -106,7 +109,6 @@ app.post('/api/register', async (req, res) => {
     try {
         const { nickname, email, password, universityId } = req.body;
 
-        // バリデーション
         if (!nickname || !email || !password || !universityId) {
             return res.status(400).json({ success: false, message: '全ての項目を入力してください' });
         }
@@ -123,27 +125,37 @@ app.post('/api/register', async (req, res) => {
         }
 
         // 既存ユーザーチェック
-        for (const [_, user] of verifiedUsers) {
-            if (user.email === email) {
-                return res.status(400).json({ success: false, message: 'このメールアドレスは既に登録されています' });
-            }
+        const { data: existingUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email)
+            .single();
+
+        if (existingUser) {
+            return res.status(400).json({ success: false, message: 'このメールアドレスは既に登録されています' });
         }
 
-        // トークン生成
         const token = generateToken();
         const verifyUrl = `${process.env.BASE_URL || 'http://localhost:3000'}/verify?token=${token}`;
 
+        // 既存の仮登録を削除
+        await supabase.from('pending_users').delete().eq('email', email);
+
         // 仮登録保存
-        pendingUsers.set(token, {
-            id: generateToken(),
-            nickname,
+        const { error: insertError } = await supabase.from('pending_users').insert({
             email,
             password: hashPassword(password),
-            universityId,
-            createdAt: Date.now()
+            nickname,
+            university_id: universityId,
+            token
         });
 
-        // メール送信（Gmail経由）
+        if (insertError) {
+            console.error('仮登録エラー:', insertError);
+            return res.status(500).json({ success: false, message: 'データベースエラー' });
+        }
+
+        // メール送信
         const mailOptions = {
             from: `MedShare <${process.env.GMAIL_USER}>`,
             to: email,
@@ -165,123 +177,324 @@ app.post('/api/register', async (req, res) => {
                         このリンクは24時間有効です。<br>
                         心当たりがない場合は、このメールを無視してください。
                     </p>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-                    <p style="color: #999; font-size: 12px;">
-                        MedShare - 医学部生専用 情報共有プラットフォーム
-                    </p>
                 </div>
             `
         };
 
         await transporter.sendMail(mailOptions);
-        console.log('メール送信成功:', email);
         res.json({ success: true, message: '認証メールを送信しました' });
 
     } catch (error) {
         console.error('登録エラー:', error);
-        res.status(500).json({ success: false, message: 'メールの送信に失敗しました。Gmail設定を確認してください。' });
+        res.status(500).json({ success: false, message: 'エラーが発生しました' });
     }
 });
 
-// メール認証（トークン検証）
-app.get('/verify', (req, res) => {
+// メール認証
+app.get('/verify', async (req, res) => {
     const { token } = req.query;
 
-    if (!token || !pendingUsers.has(token)) {
+    const { data: pendingUser, error } = await supabase
+        .from('pending_users')
+        .select('*')
+        .eq('token', token)
+        .single();
+
+    if (error || !pendingUser) {
         return res.send(`
-            <html>
-            <head><meta charset="utf-8"><title>認証エラー</title></head>
+            <html><head><meta charset="utf-8"><title>認証エラー</title></head>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h1 style="color: #ef4444;">認証エラー</h1>
                 <p>無効または期限切れのリンクです。</p>
                 <a href="/" style="color: #0891b2;">トップページに戻る</a>
-            </body>
-            </html>
+            </body></html>
         `);
     }
 
-    const pendingUser = pendingUsers.get(token);
-
-    // 有効期限チェック（24時間）
-    if (Date.now() - pendingUser.createdAt > 24 * 60 * 60 * 1000) {
-        pendingUsers.delete(token);
+    // 24時間チェック
+    const createdAt = new Date(pendingUser.created_at).getTime();
+    if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+        await supabase.from('pending_users').delete().eq('token', token);
         return res.send(`
-            <html>
-            <head><meta charset="utf-8"><title>認証エラー</title></head>
+            <html><head><meta charset="utf-8"><title>認証エラー</title></head>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h1 style="color: #ef4444;">リンクの有効期限切れ</h1>
-                <p>認証リンクの有効期限が切れています。再度登録してください。</p>
+                <p>再度登録してください。</p>
                 <a href="/" style="color: #0891b2;">トップページに戻る</a>
-            </body>
-            </html>
+            </body></html>
         `);
     }
 
     // 本登録
-    const newUser = {
-        id: pendingUser.id,
-        nickname: pendingUser.nickname,
+    const { data: newUser, error: insertError } = await supabase.from('users').insert({
         email: pendingUser.email,
         password: pendingUser.password,
-        universityId: pendingUser.universityId,
-        createdAt: Date.now()
-    };
+        nickname: pendingUser.nickname,
+        university_id: pendingUser.university_id
+    }).select().single();
 
-    verifiedUsers.set(newUser.id, newUser);
-    pendingUsers.delete(token);
+    if (insertError) {
+        console.error('本登録エラー:', insertError);
+        return res.send('<h1>エラーが発生しました</h1>');
+    }
 
-    // 成功ページを表示（自動でアプリにリダイレクト）
+    await supabase.from('pending_users').delete().eq('token', token);
+
     res.send(`
         <html>
         <head>
             <meta charset="utf-8">
             <title>認証完了 - MedShare</title>
             <script>
-                // LocalStorageにセッション情報を保存
                 const user = {
                     id: "${newUser.id}",
                     nickname: "${newUser.nickname}",
                     email: "${newUser.email}",
-                    universityId: "${newUser.universityId}"
+                    universityId: "${newUser.university_id}"
                 };
                 localStorage.setItem('medshare_session', JSON.stringify(user));
-
-                // 3秒後にリダイレクト
-                setTimeout(() => {
-                    window.location.href = '/';
-                }, 3000);
+                setTimeout(() => { window.location.href = '/'; }, 2000);
             </script>
         </head>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
             <h1 style="color: #0891b2;">🎉 認証完了！</h1>
             <p>${newUser.nickname}さん、MedShareへようこそ！</p>
-            <p>アカウントが正常に作成されました。</p>
-            <p style="color: #666;">3秒後に自動でアプリに移動します...</p>
-            <p><a href="/" style="color: #0891b2;">今すぐアプリを開く</a></p>
+            <p style="color: #666;">自動でアプリに移動します...</p>
         </body>
         </html>
     `);
 });
 
 // ログイン
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
-    for (const [_, user] of verifiedUsers) {
-        if (user.email === email && user.password === hashPassword(password)) {
-            return res.json({
-                success: true,
-                user: {
-                    id: user.id,
-                    nickname: user.nickname,
-                    email: user.email,
-                    universityId: user.universityId
-                }
-            });
-        }
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('password', hashPassword(password))
+        .single();
+
+    if (error || !user) {
+        return res.status(401).json({ success: false, message: 'メールアドレスまたはパスワードが正しくありません' });
     }
 
-    res.status(401).json({ success: false, message: 'メールアドレスまたはパスワードが正しくありません' });
+    res.json({
+        success: true,
+        user: {
+            id: user.id,
+            nickname: user.nickname,
+            email: user.email,
+            universityId: user.university_id,
+            points: user.points,
+            avatar: user.avatar
+        }
+    });
+});
+
+// 投稿一覧取得
+app.get('/api/posts/:universityId/:year', async (req, res) => {
+    const { universityId, year } = req.params;
+
+    const { data: posts, error } = await supabase
+        .from('posts')
+        .select('*, users(nickname, avatar)')
+        .eq('university_id', universityId)
+        .eq('year', year)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        return res.status(500).json({ success: false, message: 'データ取得エラー' });
+    }
+
+    const formattedPosts = posts.map(post => ({
+        id: post.id,
+        type: post.type,
+        title: post.title,
+        subject: post.subject,
+        professor: post.professor,
+        content: post.content,
+        files: post.files || [],
+        likes: post.likes,
+        author: post.users?.nickname || '匿名',
+        authorId: post.user_id,
+        authorAvatar: post.users?.avatar,
+        timestamp: new Date(post.created_at).getTime(),
+        editedAt: post.edited_at ? new Date(post.edited_at).getTime() : null
+    }));
+
+    res.json({ success: true, posts: formattedPosts });
+});
+
+// 投稿作成
+app.post('/api/posts', async (req, res) => {
+    const { userId, universityId, year, type, title, subject, professor, content, files } = req.body;
+
+    const { data: post, error } = await supabase.from('posts').insert({
+        user_id: userId,
+        university_id: universityId,
+        year,
+        type,
+        title,
+        subject,
+        professor,
+        content,
+        files: files || []
+    }).select().single();
+
+    if (error) {
+        console.error('投稿エラー:', error);
+        return res.status(500).json({ success: false, message: '投稿に失敗しました' });
+    }
+
+    // ポイント加算
+    let points = 1;
+    if (files && files.length > 0) {
+        points += files.length * 10;
+    }
+
+    await supabase.from('users').update({
+        points: supabase.rpc('increment_points', { user_id: userId, amount: points })
+    }).eq('id', userId);
+
+    // 簡易的にポイント加算
+    const { data: userData } = await supabase.from('users').select('points').eq('id', userId).single();
+    await supabase.from('users').update({ points: (userData?.points || 0) + points }).eq('id', userId);
+
+    res.json({ success: true, post, earnedPoints: points });
+});
+
+// 投稿更新
+app.put('/api/posts/:postId', async (req, res) => {
+    const { postId } = req.params;
+    const { userId, type, title, subject, professor, content, files } = req.body;
+
+    const { data: existingPost } = await supabase.from('posts').select('user_id').eq('id', postId).single();
+
+    if (!existingPost || existingPost.user_id !== userId) {
+        return res.status(403).json({ success: false, message: '権限がありません' });
+    }
+
+    const { error } = await supabase.from('posts').update({
+        type, title, subject, professor, content, files,
+        edited_at: new Date().toISOString()
+    }).eq('id', postId);
+
+    if (error) {
+        return res.status(500).json({ success: false, message: '更新に失敗しました' });
+    }
+
+    res.json({ success: true });
+});
+
+// 投稿削除
+app.delete('/api/posts/:postId', async (req, res) => {
+    const { postId } = req.params;
+    const { userId } = req.body;
+
+    const { data: existingPost } = await supabase.from('posts').select('user_id').eq('id', postId).single();
+
+    if (!existingPost || existingPost.user_id !== userId) {
+        return res.status(403).json({ success: false, message: '権限がありません' });
+    }
+
+    await supabase.from('likes').delete().eq('post_id', postId);
+    await supabase.from('posts').delete().eq('id', postId);
+
+    res.json({ success: true });
+});
+
+// いいね
+app.post('/api/posts/:postId/like', async (req, res) => {
+    const { postId } = req.params;
+    const { userId } = req.body;
+
+    const { data: existingLike } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('post_id', postId)
+        .single();
+
+    if (existingLike) {
+        // いいね解除
+        await supabase.from('likes').delete().eq('id', existingLike.id);
+        await supabase.rpc('decrement_likes', { post_id: postId });
+
+        const { data: post } = await supabase.from('posts').select('likes').eq('id', postId).single();
+        await supabase.from('posts').update({ likes: Math.max(0, (post?.likes || 1) - 1) }).eq('id', postId);
+
+        res.json({ success: true, liked: false });
+    } else {
+        // いいね追加
+        await supabase.from('likes').insert({ user_id: userId, post_id: postId });
+
+        const { data: post } = await supabase.from('posts').select('likes').eq('id', postId).single();
+        await supabase.from('posts').update({ likes: (post?.likes || 0) + 1 }).eq('id', postId);
+
+        res.json({ success: true, liked: true });
+    }
+});
+
+// ユーザーのいいね状態取得
+app.get('/api/users/:userId/likes', async (req, res) => {
+    const { userId } = req.params;
+
+    const { data: likes } = await supabase
+        .from('likes')
+        .select('post_id')
+        .eq('user_id', userId);
+
+    const likedPostIds = likes ? likes.map(l => l.post_id) : [];
+    res.json({ success: true, likedPostIds });
+});
+
+// ランキング取得
+app.get('/api/rankings/:scope', async (req, res) => {
+    const { scope } = req.params;
+    const { universityId } = req.query;
+
+    let query = supabase.from('users').select('id, nickname, university_id, points, avatar').order('points', { ascending: false });
+
+    if (scope === 'university' && universityId) {
+        query = query.eq('university_id', universityId);
+    }
+
+    const { data: users, error } = await query.limit(50);
+
+    if (error) {
+        return res.status(500).json({ success: false, message: 'データ取得エラー' });
+    }
+
+    res.json({ success: true, rankings: users });
+});
+
+// アバター更新
+app.put('/api/users/:userId/avatar', async (req, res) => {
+    const { userId } = req.params;
+    const { avatar } = req.body;
+
+    const { error } = await supabase.from('users').update({ avatar }).eq('id', userId);
+
+    if (error) {
+        return res.status(500).json({ success: false, message: '更新に失敗しました' });
+    }
+
+    res.json({ success: true });
+});
+
+// ポイント加算
+app.post('/api/users/:userId/points', async (req, res) => {
+    const { userId } = req.params;
+    const { amount } = req.body;
+
+    const { data: user } = await supabase.from('users').select('points').eq('id', userId).single();
+    const newPoints = (user?.points || 0) + amount;
+
+    await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+
+    res.json({ success: true, points: newPoints });
 });
 
 // AI問題生成
@@ -298,148 +511,84 @@ app.post('/api/generate-questions', async (req, res) => {
         }
 
         const typeLabels = {
-            'short': '単答式問題（用語や短い答えを問う問題）',
-            'multiple': '4択問題（4つの選択肢から正解を1つ選ぶ問題）',
-            'essay': '記述問題（詳しく説明させる問題）'
+            'short': '単答式問題',
+            'multiple': '4択問題',
+            'essay': '記述問題'
         };
 
         const typeInstructions = {
-            'short': `以下の形式で5問作成してください：
-問1: [問題文]
-解答: [短い答え]`,
-            'multiple': `以下の形式で5問作成してください：
-問1: [問題文]
-A. [選択肢1]
-B. [選択肢2]
-C. [選択肢3]
-D. [選択肢4]
-解答: [正解の選択肢（A/B/C/D）]`,
-            'essay': `以下の形式で5問作成してください：
-問1: [問題文]
-模範解答: [詳しい解答]`
+            'short': '問1: [問題文]\n解答: [短い答え]',
+            'multiple': '問1: [問題文]\nA. [選択肢1]\nB. [選択肢2]\nC. [選択肢3]\nD. [選択肢4]\n解答: [正解]',
+            'essay': '問1: [問題文]\n模範解答: [詳しい解答]'
         };
 
-        // 画像を含むメッセージを構築
         const content = [
             {
                 type: 'text',
-                text: `以下の医学教材に基づいて、${typeLabels[type]}を5問作成してください。
-
-問題は教材の内容に基づいた実践的なものにしてください。
-医学部の試験対策として役立つ問題を作成してください。
-
-${typeInstructions[type]}
-
-問題のみを出力し、余計な説明は不要です。`
+                text: `以下の医学教材に基づいて、${typeLabels[type]}を5問作成してください。\n\n${typeInstructions[type]}\n\n問題のみを出力してください。`
             }
         ];
 
-        // 画像ファイルを追加
         for (const material of materials) {
             if (material.data.startsWith('data:image')) {
-                content.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: material.data
-                    }
-                });
+                content.push({ type: 'image_url', image_url: { url: material.data } });
             }
         }
 
         const response = await openai.chat.completions.create({
             model: 'gpt-4o',
-            messages: [
-                {
-                    role: 'user',
-                    content: content
-                }
-            ],
+            messages: [{ role: 'user', content }],
             max_tokens: 4000
         });
 
         const generatedText = response.choices[0].message.content;
-
-        // テキストをパースして問題オブジェクトに変換
         const questions = parseQuestions(generatedText, type);
 
         res.json({ success: true, questions });
 
     } catch (error) {
         console.error('AI生成エラー:', error);
-        res.status(500).json({ success: false, message: 'AI問題生成に失敗しました: ' + error.message });
+        res.status(500).json({ success: false, message: 'AI問題生成に失敗しました' });
     }
 });
 
-// 問題テキストをパース
 function parseQuestions(text, type) {
     const questions = [];
     const lines = text.split('\n').filter(line => line.trim());
-
     let currentQuestion = null;
     let questionNumber = 0;
 
     for (const line of lines) {
         const trimmed = line.trim();
-
-        // 問題の開始を検出
         if (trimmed.match(/^問\d+[:：]/)) {
-            if (currentQuestion) {
-                questions.push(currentQuestion);
-            }
+            if (currentQuestion) questions.push(currentQuestion);
             questionNumber++;
             currentQuestion = {
-                type: type,
-                number: questionNumber,
+                type, number: questionNumber,
                 question: trimmed.replace(/^問\d+[:：]\s*/, ''),
                 choices: type === 'multiple' ? [] : undefined,
                 answer: ''
             };
-        }
-        // 選択肢を検出（4択の場合）
-        else if (type === 'multiple' && trimmed.match(/^[A-D][.．]/)) {
-            if (currentQuestion) {
-                currentQuestion.choices.push(trimmed);
-            }
-        }
-        // 解答を検出
-        else if (trimmed.match(/^(解答|模範解答)[:：]/)) {
-            if (currentQuestion) {
-                currentQuestion.answer = trimmed.replace(/^(解答|模範解答)[:：]\s*/, '');
-            }
-        }
-        // 問題文の続き
-        else if (currentQuestion && !currentQuestion.answer) {
-            if (type !== 'multiple' || !trimmed.match(/^[A-D][.．]/)) {
-                currentQuestion.question += ' ' + trimmed;
-            }
+        } else if (type === 'multiple' && trimmed.match(/^[A-D][.．]/)) {
+            if (currentQuestion) currentQuestion.choices.push(trimmed);
+        } else if (trimmed.match(/^(解答|模範解答)[:：]/)) {
+            if (currentQuestion) currentQuestion.answer = trimmed.replace(/^(解答|模範解答)[:：]\s*/, '');
         }
     }
-
-    // 最後の問題を追加
-    if (currentQuestion) {
-        questions.push(currentQuestion);
-    }
-
+    if (currentQuestion) questions.push(currentQuestion);
     return questions;
 }
 
-// ルートパスでindex.htmlを返す
+// ルートパス
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Vercel用エクスポート
 module.exports = app;
 
 // ローカル開発用
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => {
-        console.log(`
-╔═══════════════════════════════════════════════════╗
-║           MedShare Server Started!                ║
-╠═══════════════════════════════════════════════════╣
-║  URL: http://localhost:${PORT}                       ║
-╚═══════════════════════════════════════════════════╝
-        `);
+        console.log(`Server running at http://localhost:${PORT}`);
     });
 }

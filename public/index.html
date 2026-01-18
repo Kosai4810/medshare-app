@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedShare - 医学部生専用情報共有</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- ヘッダー -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">🏥 MedShare</h1>
+                <p class="tagline">医学部生専用 試験対策・情報共有プラットフォーム</p>
+            </div>
+            <div id="user-menu" class="user-menu hidden">
+                <div id="user-avatar" class="user-avatar" title="プロフィール画像を変更">
+                    <span class="avatar-placeholder">👤</span>
+                </div>
+                <span id="user-points" class="user-points">0 pt</span>
+                <span id="user-nickname" class="user-nickname"></span>
+                <span id="user-university" class="user-university"></span>
+                <button id="ranking-btn" class="btn btn-small btn-ranking">🏆 ランキング</button>
+                <button id="logout-btn" class="btn btn-small">ログアウト</button>
+            </div>
+            <input type="file" id="avatar-input" accept="image/*" style="display:none;">
+        </header>
+
+        <!-- 認証画面 -->
+        <div id="auth-screen" class="screen active">
+            <div class="auth-container">
+                <div class="auth-box">
+                    <div class="auth-tabs">
+                        <button class="auth-tab active" data-tab="login">ログイン</button>
+                        <button class="auth-tab" data-tab="register">新規登録</button>
+                    </div>
+
+                    <!-- ログインフォーム -->
+                    <form id="login-form" class="auth-form">
+                        <div class="form-group">
+                            <label for="login-email">学番メールアドレス</label>
+                            <input type="email" id="login-email" placeholder="a12345@med.example-u.ac.jp" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">パスワード</label>
+                            <input type="password" id="login-password" placeholder="パスワードを入力" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">ログイン</button>
+                    </form>
+
+                    <!-- 新規登録フォーム -->
+                    <form id="register-form" class="auth-form hidden">
+                        <div class="form-group">
+                            <label for="register-university">所属大学</label>
+                            <select id="register-university" required>
+                                <option value="">-- 大学を選んでください --</option>
+                            </select>
+                            <p class="form-hint" id="email-hint"></p>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-nickname">ニックネーム</label>
+                            <input type="text" id="register-nickname" placeholder="表示名を入力" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-email">学番メールアドレス</label>
+                            <input type="email" id="register-email" placeholder="学番メールを入力" required>
+                            <p class="form-hint">※ 所属大学の医学部メールアドレスのみ登録可能</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-password">パスワード</label>
+                            <input type="password" id="register-password" placeholder="8文字以上" minlength="8" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-password-confirm">パスワード（確認）</label>
+                            <input type="password" id="register-password-confirm" placeholder="もう一度入力" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">アカウントを作成</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 選択画面 -->
+        <div id="selection-screen" class="screen">
+            <div class="selection-container">
+                <h2>タイムラインを選択</h2>
+                <p class="selection-desc">学年を選んで、仲間と情報を共有しよう</p>
+
+                <div class="selection-form">
+                    <div class="form-group">
+                        <label>所属大学</label>
+                        <div id="current-university-display" class="university-display"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="year-select">学年を選択</label>
+                        <select id="year-select">
+                            <option value="">-- 学年を選んでください --</option>
+                            <option value="1">1年生</option>
+                            <option value="2">2年生</option>
+                            <option value="3">3年生</option>
+                            <option value="4">4年生</option>
+                            <option value="5">5年生</option>
+                            <option value="6">6年生</option>
+                            <option value="graduate">大学院生</option>
+                        </select>
+                    </div>
+
+                    <button id="go-timeline-btn" class="btn btn-primary" disabled>
+                        タイムラインへ →
+                    </button>
+                </div>
+
+                <div class="recent-timelines">
+                    <h3>最近アクセスしたタイムライン</h3>
+                    <div id="recent-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- タイムライン画面 -->
+        <div id="timeline-screen" class="screen">
+            <div class="timeline-header">
+                <button id="back-btn" class="btn btn-back">← 戻る</button>
+                <div class="timeline-info">
+                    <h2 id="timeline-title"></h2>
+                    <span id="post-count" class="post-count"></span>
+                </div>
+            </div>
+
+            <!-- 投稿フォーム -->
+            <div class="post-form-container">
+                <div class="post-form">
+                    <div class="form-tabs">
+                        <button class="tab-btn active" data-type="exam">📝 試験対策</button>
+                        <button class="tab-btn" data-type="info">📚 試験・授業情報</button>
+                        <button class="tab-btn" data-type="clinical">🏥 実習情報</button>
+                    </div>
+
+                    <input type="hidden" id="post-type" value="exam">
+
+                    <!-- AI問題生成セクション（試験対策タブ専用） -->
+                    <div id="ai-generator-section" class="ai-generator-section">
+                        <div class="ai-generator-header">
+                            <span class="ai-icon">🤖</span>
+                            <div>
+                                <h4>AIオリジナル問題生成</h4>
+                                <p>試験に出る範囲の教材をアップロードすれば、それに基づいたオリジナル問題をAIが自動生成します</p>
+                            </div>
+                        </div>
+                        <div class="ai-upload-area">
+                            <label for="ai-material-file" class="ai-upload-label">
+                                <span class="upload-icon">📄</span>
+                                <span class="upload-text">教材をアップロード（PDF・画像）</span>
+                                <span class="upload-hint">PDF, JPG, PNG 対応</span>
+                            </label>
+                            <input type="file" id="ai-material-file" accept=".pdf,.jpg,.jpeg,.png" multiple>
+                            <div id="ai-file-preview" class="ai-file-preview"></div>
+                        </div>
+                        <button type="button" id="create-test-btn" class="btn btn-ai" disabled>
+                            🎯 オリジナルテストを作成する
+                        </button>
+                    </div>
+
+                    <div class="form-fields">
+                        <div class="subject-select-wrapper">
+                            <label class="field-label">科目 <span class="required">*必須</span></label>
+                            <select id="post-subject-select" required>
+                                <option value="">-- 科目を選択 --</option>
+                                <option value="__other__">その他（新しく追加）</option>
+                            </select>
+                            <input type="text" id="post-subject-other" placeholder="新しい科目名を入力" class="hidden">
+                        </div>
+                        <div class="field-wrapper">
+                            <label class="field-label">タイトル <span class="required">*必須</span></label>
+                            <input type="text" id="post-title" placeholder="例：試験対策まとめ" required>
+                        </div>
+                        <div class="field-wrapper">
+                            <label class="field-label">担当教員名 <span class="optional">任意</span></label>
+                            <input type="text" id="post-professor" placeholder="担当教員名">
+                        </div>
+                        <div class="field-wrapper">
+                            <label class="field-label">詳細・コメント <span class="optional">任意</span></label>
+                            <textarea id="post-content" placeholder="詳細・コメント"></textarea>
+                        </div>
+
+                        <div class="file-upload">
+                            <label for="post-file" class="file-label">
+                                <span class="file-icon">📎</span>
+                                <span class="file-text">ファイルを添付（PDF, 画像など）</span>
+                            </label>
+                            <input type="file" id="post-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" multiple>
+                            <div id="file-preview"></div>
+                        </div>
+
+                        <button id="submit-post-btn" class="btn btn-primary">投稿する</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="filter-bar">
+                <button class="filter-btn active" data-filter="all">すべて</button>
+                <button class="filter-btn" data-filter="exam">📝 試験対策</button>
+                <button class="filter-btn" data-filter="info">📚 授業情報</button>
+                <button class="filter-btn" data-filter="clinical">🏥 実習</button>
+            </div>
+
+            <!-- 科目別セクション -->
+            <div id="subject-section" class="subject-section">
+                <h3>📖 科目別で探す</h3>
+                <div id="subject-list" class="subject-list"></div>
+            </div>
+
+            <!-- タイムライン -->
+            <div id="timeline" class="timeline">
+            </div>
+
+            <!-- 科目別モーダル -->
+            <div id="subject-modal" class="modal">
+                <div class="modal-content subject-modal-content">
+                    <div class="subject-modal-header">
+                        <button id="close-subject-modal" class="btn btn-back">← 戻る</button>
+                        <h2 id="subject-modal-title"></h2>
+                    </div>
+                    <div id="subject-posts" class="subject-posts"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ランキングモーダル -->
+        <div id="ranking-modal" class="modal">
+            <div class="modal-content ranking-modal-content">
+                <h2>🏆 ポイントランキング</h2>
+                <div class="ranking-tabs">
+                    <button class="ranking-tab active" data-scope="national">🌏 全国</button>
+                    <button class="ranking-tab" data-scope="university">🏫 大学内</button>
+                </div>
+                <div id="ranking-list" class="ranking-list"></div>
+                <div class="modal-actions">
+                    <button id="close-ranking-btn" class="btn btn-secondary">閉じる</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 利用規約モーダル -->
+        <div id="terms-modal" class="modal">
+            <div class="modal-content">
+                <h2>利用規約</h2>
+                <div class="terms-text">
+                    <h3>1. 禁止事項</h3>
+                    <p>以下のコンテンツの投稿を禁止します：</p>
+                    <ul>
+                        <li>大学・教員が作成した過去問・試験問題</li>
+                        <li>授業で配布されたプリント・資料</li>
+                        <li>教科書・参考書のスキャン・コピー</li>
+                        <li>患者情報を含むコンテンツ</li>
+                        <li>その他、第三者の著作権を侵害するコンテンツ</li>
+                    </ul>
+
+                    <h3>2. 投稿可能なコンテンツ</h3>
+                    <ul>
+                        <li>自分で作成したノート・まとめ</li>
+                        <li>自分で考えた試験対策・勉強法</li>
+                        <li>授業や実習に関する口コミ・感想・情報</li>
+                    </ul>
+
+                    <h3>3. 免責事項</h3>
+                    <p>ユーザーが投稿したコンテンツに関する責任は投稿者本人に帰属します。著作権侵害等の報告があった場合、該当コンテンツは削除されます。</p>
+
+                    <h3>4. 通報について</h3>
+                    <p>規約違反のコンテンツを発見した場合は、通報機能をご利用ください。</p>
+                </div>
+                <div class="modal-actions">
+                    <button id="accept-terms-btn" class="btn btn-primary">同意して利用する</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通報モーダル -->
+        <div id="report-modal" class="modal">
+            <div class="modal-content">
+                <h2>投稿を通報</h2>
+                <p class="report-desc">この投稿が利用規約に違反していると思われる場合は、理由を選択してください。</p>
+                <div class="report-options">
+                    <label class="report-option">
+                        <input type="radio" name="report-reason" value="copyright">
+                        <span>著作権侵害（過去問・授業資料など）</span>
+                    </label>
+                    <label class="report-option">
+                        <input type="radio" name="report-reason" value="patient">
+                        <span>患者情報の漏洩</span>
+                    </label>
+                    <label class="report-option">
+                        <input type="radio" name="report-reason" value="inappropriate">
+                        <span>不適切なコンテンツ</span>
+                    </label>
+                    <label class="report-option">
+                        <input type="radio" name="report-reason" value="spam">
+                        <span>スパム・宣伝</span>
+                    </label>
+                    <label class="report-option">
+                        <input type="radio" name="report-reason" value="other">
+                        <span>その他</span>
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button id="cancel-report-btn" class="btn btn-secondary">キャンセル</button>
+                    <button id="submit-report-btn" class="btn btn-danger">通報する</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI問題タイプ選択モーダル -->
+        <div id="ai-type-modal" class="modal">
+            <div class="modal-content">
+                <h2>🤖 問題タイプを選択</h2>
+                <p class="ai-type-desc">生成したい問題の形式を選んでください</p>
+                <div class="ai-type-options">
+                    <button class="ai-type-btn" data-type="short">
+                        <span class="ai-type-icon">✏️</span>
+                        <span class="ai-type-name">単答式問題</span>
+                        <span class="ai-type-hint">用語や短い答えを問う問題</span>
+                    </button>
+                    <button class="ai-type-btn" data-type="multiple">
+                        <span class="ai-type-icon">🔢</span>
+                        <span class="ai-type-name">4択問題</span>
+                        <span class="ai-type-hint">4つの選択肢から正解を選ぶ問題</span>
+                    </button>
+                    <button class="ai-type-btn" data-type="essay">
+                        <span class="ai-type-icon">📝</span>
+                        <span class="ai-type-name">記述問題</span>
+                        <span class="ai-type-hint">詳しく説明させる記述式問題</span>
+                    </button>
+                </div>
+                <div class="modal-actions">
+                    <button id="cancel-ai-type-btn" class="btn btn-secondary">キャンセル</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI問題生成中モーダル -->
+        <div id="ai-generating-modal" class="modal">
+            <div class="modal-content ai-generating-content">
+                <div class="generating-spinner"></div>
+                <h2>問題を生成中...</h2>
+                <p>AIが教材を分析してオリジナル問題を作成しています</p>
+            </div>
+        </div>
+
+        <!-- AI生成結果モーダル -->
+        <div id="ai-result-modal" class="modal">
+            <div class="modal-content ai-result-content">
+                <h2>🎉 問題が生成されました！</h2>
+                <div id="ai-generated-questions" class="ai-generated-questions"></div>
+                <div class="modal-actions">
+                    <button id="close-ai-result-btn" class="btn btn-secondary">閉じる</button>
+                    <button id="post-ai-result-btn" class="btn btn-primary">この問題を投稿する</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- メール認証モーダル -->
+        <div id="verify-modal" class="modal">
+            <div class="modal-content">
+                <h2>メール認証</h2>
+                <div class="verify-content">
+                    <div class="verify-icon">📧</div>
+                    <p>以下の学番メールアドレスに認証リンクを送信しました：</p>
+                    <p class="verify-email" id="verify-email-display"></p>
+                    <p class="verify-note">メール内のリンクをクリックして登録を完了してください。</p>
+
+                    <div class="demo-notice">
+                        <p><strong>【デモ版】</strong></p>
+                        <p>実際のメールは送信されません。<br>以下のリンクをクリックして認証を完了してください：</p>
+                        <a href="#" id="demo-verify-link" class="demo-link">認証リンク（クリックして登録完了）</a>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="cancel-verify-btn" class="btn btn-secondary">キャンセル</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

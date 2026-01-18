@@ -1,33 +1,30 @@
 const express = require('express');
-const nodemailer = require('nodemailer');
 const cors = require('cors');
 const path = require('path');
-const OpenAI = require('openai');
+const { Resend } = require('resend');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 // Supabase初期化
 const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    process.env.SUPABASE_URL || '',
+    process.env.SUPABASE_ANON_KEY || ''
 );
 
-// OpenAI初期化
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+// Resend初期化
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// OpenAI初期化（オプション）
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+    const OpenAI = require('openai');
+    openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+    });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Nodemailer Gmail設定
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD
-    }
-});
 
 // ミドルウェア
 app.use(cors());
@@ -155,9 +152,9 @@ app.post('/api/register', async (req, res) => {
             return res.status(500).json({ success: false, message: 'データベースエラー' });
         }
 
-        // メール送信
-        const mailOptions = {
-            from: `MedShare <${process.env.GMAIL_USER}>`,
+        // Resendでメール送信
+        await resend.emails.send({
+            from: process.env.FROM_EMAIL || 'MedShare <onboarding@resend.dev>',
             to: email,
             subject: '【MedShare】メールアドレスの確認',
             html: `
@@ -179,9 +176,7 @@ app.post('/api/register', async (req, res) => {
                     </p>
                 </div>
             `
-        };
-
-        await transporter.sendMail(mailOptions);
+        });
         res.json({ success: true, message: '認証メールを送信しました' });
 
     } catch (error) {
@@ -502,7 +497,7 @@ app.post('/api/generate-questions', async (req, res) => {
     try {
         const { type, materials } = req.body;
 
-        if (!process.env.OPENAI_API_KEY) {
+        if (!openai) {
             return res.status(500).json({ success: false, message: 'OpenAI APIキーが設定されていません' });
         }
 

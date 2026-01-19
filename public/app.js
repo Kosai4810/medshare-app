@@ -569,17 +569,27 @@ function goToTimeline(year) {
     const yearName = yearLabels[year] || year;
     document.getElementById('timeline-title').textContent = `${uniName} 医学部 ${yearName}`;
 
-    // 4年生以上の場合、臨床実習(ポリクリ)オプションを表示
-    const polikuriOption = document.getElementById('polikuri-option');
-    if (polikuriOption) {
-        const yearNum = parseInt(year, 10);
-        polikuriOption.style.display = yearNum >= 4 ? '' : 'none';
-    }
-
     document.getElementById('selection-screen').classList.remove('active');
     document.getElementById('timeline-screen').classList.add('active');
 
     renderPosts();
+    updatePolikuriOptionVisibility();
+}
+
+// 臨床実習(ポリクリ)オプションの表示/非表示を制御
+function updatePolikuriOptionVisibility() {
+    const polikuriOption = document.getElementById('polikuri-option');
+    if (!polikuriOption) return;
+
+    const postType = document.getElementById('post-type').value;
+    const yearNum = parseInt(currentYear, 10);
+
+    // 実習情報タブ(clinical)かつ4年生以上の場合のみ表示
+    if (postType === 'clinical' && yearNum >= 4) {
+        polikuriOption.style.display = '';
+    } else {
+        polikuriOption.style.display = 'none';
+    }
 }
 
 function goBack() {
@@ -1542,6 +1552,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
             document.getElementById('post-type').value = btn.dataset.type;
             updateAiGeneratorVisibility();
+            updatePolikuriOptionVisibility();
         });
     });
 

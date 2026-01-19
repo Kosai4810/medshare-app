@@ -1331,12 +1331,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ログインフォーム
-    document.getElementById('login-form').addEventListener('submit', (e) => {
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('login-email').value.trim();
         const password = document.getElementById('login-password').value;
 
-        const result = loginUser(email, password);
+        const result = await loginUserAPI(email, password);
         if (result.success) {
             currentUser = result.user;
             updateUserUI();

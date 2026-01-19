@@ -569,6 +569,13 @@ function goToTimeline(year) {
     const yearName = yearLabels[year] || year;
     document.getElementById('timeline-title').textContent = `${uniName} 医学部 ${yearName}`;
 
+    // 4年生以上の場合、臨床実習(ポリクリ)オプションを表示
+    const polikuriOption = document.getElementById('polikuri-option');
+    if (polikuriOption) {
+        const yearNum = parseInt(year, 10);
+        polikuriOption.style.display = yearNum >= 4 ? '' : 'none';
+    }
+
     document.getElementById('selection-screen').classList.remove('active');
     document.getElementById('timeline-screen').classList.add('active');
 

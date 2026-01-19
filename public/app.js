@@ -1107,8 +1107,18 @@ function updateSubjectSelect() {
         select.remove(2);
     }
 
+    // 4年生以上の場合、臨床実習(ポリクリ)を追加
+    if (currentYear >= 4) {
+        const polikuriOption = document.createElement('option');
+        polikuriOption.value = '臨床実習(ポリクリ)';
+        polikuriOption.textContent = '臨床実習(ポリクリ)';
+        select.insertBefore(polikuriOption, select.options[1]);
+    }
+
     // 科目を追加
     subjects.forEach(subject => {
+        // 臨床実習(ポリクリ)が既にある場合は重複を避ける
+        if (subject.name === '臨床実習(ポリクリ)' && currentYear >= 4) return;
         const option = document.createElement('option');
         option.value = subject.name;
         option.textContent = subject.name;

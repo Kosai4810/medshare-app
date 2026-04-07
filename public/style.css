@@ -34,7 +34,9 @@ body {
 
 /* ヘッダー */
 .header {
-    background: linear-gradient(135deg, #0891b2, #0d9488);
+    background: linear-gradient(rgba(8, 145, 178, 0.85), rgba(13, 148, 136, 0.85)), url('header-bg.png');
+    background-size: cover;
+    background-position: center;
     color: white;
     padding: 1.5rem;
     text-align: center;
@@ -222,6 +224,19 @@ select:disabled {
 .post-form-container {
     padding: 1rem;
     background: var(--secondary-color);
+}
+
+/* ポイント情報バナー */
+.point-info-banner {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #92400e;
 }
 
 .post-form {

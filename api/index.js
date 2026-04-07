@@ -261,6 +261,21 @@ app.get('/api/verify', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
+    // テスト用アカウント
+    if (email === 'a@a' && password === '123456') {
+        return res.json({
+            success: true,
+            user: {
+                id: 'test-user-001',
+                nickname: 'テストユーザー',
+                email: 'a@a',
+                universityId: 'tokyo',
+                points: 100,
+                avatar: null
+            }
+        });
+    }
+
     const { data: user, error } = await supabase
         .from('users')
         .select('*')
